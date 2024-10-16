@@ -4,152 +4,89 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drone Control Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="scripts/mqtt.js"></script>
+    <link href="scripts/tailwind.css" rel="stylesheet">
+
+    
     <style>
-        :root {
-            --primary-color: #3498db;
-            --secondary-color: #2c3e50;
-            --accent-color: #e74c3c;
-            --background-color: #ecf0f1;
-            --text-color: #34495e;
-            --card-background: #ffffff;
+        .drone-card {
+            transition: background-color 0.3s ease;
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: var(--text-color);
-            background-color: var(--background-color);
-            margin: 0;
-            padding: 20px;
+        .drone-card.connected {
+            background-color: #4ade80;
         }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: var(--card-background);
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-        }
-
-        h1, h2 {
-            color: var(--secondary-color);
-            text-align: center;
-        }
-
-        h1 {
-            margin-bottom: 30px;
-            font-size: 2.5em;
-        }
-
-        .control-panel, .mission-upload {
-            background-color: var(--card-background);
-            padding: 25px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-            margin-bottom: 30px;
-        }
-
-        .control-panel {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-        }
-
-        .input-group {
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 20px;
-        }
-
-        .input-group label {
-            margin-bottom: 8px;
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-
-        input[type="text"], input[type="file"], input[type="number"] {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 1em;
-        }
-
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.3s ease, transform 0.1s ease;
-            font-size: 1em;
-            font-weight: bold;
-        }
-
-        button:hover {
-            background-color: #2980b9;
-            transform: translateY(-2px);
-        }
-
-        #uploadButton {
-            background-color: var(--accent-color);
-            width: 100%;
-            margin-top: 20px;
-        }
-
-        #uploadButton:hover {
-            background-color: #c0392b;
-        }
-
-        #status {
-            background-color: #f1f8e9;
-            border: 1px solid #c5e1a5;
-            border-radius: 6px;
-            padding: 15px;
-            margin-top: 20px;
-            text-align: center;
-            font-weight: bold;
+        .drone-card.disconnected {
+            background-color: #f87171;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>Drone Control Dashboard</h1>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-6">Drone Control Dashboard</h1>
         
-        <div class="control-panel">
-            <h2>Flight Controls</h2>
-            <button onclick="changeMode('stabilize')">Stabilize Mode</button>
-            <button onclick="changeMode('guided')">Guided Mode</button>
-            <button onclick="armDrone()">Arm Drone</button>
-            <div class="input-group">
-                <label for="takeoffAltitude">Takeoff Altitude (m):</label>
-                <input type="number" id="takeoffAltitude" value="10" min="1" max="100">
+        <!-- Flight Controls -->
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-semibold mb-4">Flight Controls</h2>
+            <div class="flex flex-wrap gap-4">
+                <button onclick="changeMode('stabilize')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Stabilize Mode
+                </button>
+                <button onclick="changeMode('auto')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Auto Mode
+                </button>
+                <button onclick="changeMode('guided')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Guided Mode
+                </button>
+                <button onclick="armDrone()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Arm Drone
+                </button>
+                <div class="flex items-center">
+                    <input id="takeoffAltitude" type="number" placeholder="Altitude (m)" class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mr-2">
+                    <button onclick="takeoff()" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
+                        Takeoff
+                    </button>
+                </div>
+                <button onclick="land()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                    Land
+                </button>
             </div>
-            <button onclick="takeoff()">Takeoff</button>
         </div>
         
-        <div class="mission-upload">
-            <h2>Mission Upload</h2>
-            <div class="input-group">
-                <label for="jsonFile">Select Mission File:</label>
-                <input type="file" id="jsonFile" accept=".json">
-            </div>
-            <div class="input-group">
-                <label for="firstDroneId">First Drone ID:</label>
-                <input type="text" id="firstDroneId" placeholder="e.g., drone1">
-            </div>
-            <div class="input-group">
-                <label for="lastDroneId">Last Drone ID:</label>
-                <input type="text" id="lastDroneId" placeholder="e.g., drone5">
-            </div>
-            <button id="uploadButton" onclick="uploadMissions()">Upload Missions</button>
+        <!-- Drone Cards -->
+        <div id="droneCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <!-- Drone cards will be dynamically added here -->
         </div>
         
-        <div id="status">Status: Waiting for commands...</div>
+        <!-- Mission Upload -->
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-semibold mb-4">Mission Upload</h2>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="jsonFile">
+                    Select Mission File:
+                </label>
+                <input type="file" id="jsonFile" accept=".json" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="firstDroneId">
+                    First Drone ID:
+                </label>
+                <input type="text" id="firstDroneId" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="lastDroneId">
+                    Last Drone ID:
+                </label>
+                <input type="text" id="lastDroneId" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            </div>
+            <button onclick="uploadMissions()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                Upload Missions
+            </button>
+        </div>
+        
+        <div id="status" class="mt-4 p-4 bg-gray-200 rounded">
+            Status: Waiting for commands...
+        </div>
     </div>
-
-    <script src="drone-dashboard.js"></script>
+    <script src="scripts/drone-dashboard.js"></script>
 </body>
 </html>

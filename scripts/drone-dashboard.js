@@ -1,5 +1,5 @@
 // MQTT client setup
-var client = new Paho.MQTT.Client("192.168.21.96", 9001, "DroneControlDashboard");
+var client = new Paho.MQTT.Client("192.168.0.18", 9001, "DroneControlDashboard");
 
 client.onConnectionLost = onConnectionLost;
 client.onMessageArrived = onMessageArrived;
@@ -8,7 +8,8 @@ client.connect({onSuccess:onConnect});
 
 function onConnect() {
     console.log("Connected to MQTT broker");
-    client.subscribe("drone/status");
+    client.subscribe("drone/+/status");
+    client.subscribe("drone/+/telemetry");
 }
 
 function onConnectionLost(responseObject) {
@@ -18,7 +19,62 @@ function onConnectionLost(responseObject) {
 }
 
 function onMessageArrived(message) {
-    document.getElementById("status").innerHTML = message.payloadString;
+    const topic = message.destinationName;
+    const payload = JSON.parse(message.payloadString);
+
+    if (topic.includes('/status')) {
+        updateDroneStatus(topic, payload);
+    } else if (topic.includes('/telemetry')) {
+        updateDroneTelemetry(topic, payload);
+    }
+}
+
+function updateDroneStatus(topic, payload) {
+    const droneId = topic.split('/')[1];
+    let droneCard = document.getElementById(`drone-${droneId}`);
+    
+    if (!droneCard) {
+        droneCard = createDroneCard(droneId);
+    }
+
+    const statusElement = droneCard.querySelector('.status');
+    statusElement.textContent = `Status: ${payload.status}`;
+    
+    droneCard.classList.remove('connected', 'disconnected');
+    droneCard.classList.add(payload.status === 'connected' ? 'connected' : 'disconnected');
+}
+
+function updateDroneTelemetry(topic, payload) {
+    const droneId = topic.split('/')[1];
+    let droneCard = document.getElementById(`drone-${droneId}`);
+    
+    if (!droneCard) {
+        droneCard = createDroneCard(droneId);
+    }
+
+    const telemetryElement = droneCard.querySelector('.telemetry');
+    telemetryElement.innerHTML = `
+        <p>Altitude: ${payload.altitude.toFixed(2)} m</p>
+        <p>Battery: ${payload.battery.toFixed(2)} V</p>
+        <p>Mode: ${payload.mode}</p>
+    `;
+}
+
+function createDroneCard(droneId) {
+    const droneCards = document.getElementById('droneCards');
+    const card = document.createElement('div');
+    card.id = `drone-${droneId}`;
+    card.className = 'drone-card bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4';
+    card.innerHTML = `
+        <h3 class="text-lg font-semibold mb-2">Drone ${droneId}</h3>
+        <div class="status mb-2">Status: Unknown</div>
+        <div class="telemetry mb-4"></div>
+        <button onclick="landDrone('${droneId}')" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+            Land Drone ${droneId}
+        </button>
+    `;
+    droneCards.appendChild(card);
+    return card;
 }
 
 function sendMQTTMessage(topic, payload) {
@@ -40,6 +96,14 @@ function armDrone() {
 function takeoff() {
     const altitude = document.getElementById('takeoffAltitude').value;
     sendMQTTMessage("drone/command", {command: "takeoff", altitude: parseFloat(altitude)});
+}
+
+function land() {
+    sendMQTTMessage("drone/command", {command: "change_mode", mode: "land"});
+}
+
+function landDrone(droneId) {
+    sendMQTTMessage(`drone/${droneId}/command`, {command: "change_mode", mode: "land"});
 }
 
 function uploadMissions() {
