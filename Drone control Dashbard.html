@@ -18,12 +18,46 @@
         .drone-card.disconnected {
             background-color: #f87171;
         }
+        .status-messages{
+            padding: 5px;
+            background: #f3f2f2;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto p-4">
         <h1 class="text-3xl font-bold mb-6">Drone Control Dashboard</h1>
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-semibold mb-4">RTK Base Station</h2>
+            
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="portSelect">
+                    Select COM Port
+                </label>
+                <select id="portSelect" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    <option value="">Select a port</option>
+                </select>
+            </div>
         
+            <div class="mb-4">
+                <button id="refreshPorts" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mr-2">
+                    Refresh Ports
+                </button>
+                <button id="connectRTKBase" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Connect
+                </button>
+                <button id="disconnectRTKBase" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded ml-2" disabled>
+                    Disconnect
+                </button>
+            </div>
+        
+            <div id="rtkStatus" class="mt-4 p-4 bg-gray-200 rounded">
+                <p class="font-bold">Status: <span id="connectionStatus">Not Connected</span></p>
+                <p>Bytes Received: <span id="bytesReceived">0</span></p>
+                <p>Last Update: <span id="lastUpdate">Never</span></p>
+            </div>
+        </div>
         <!-- Flight Controls -->
         <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
             <h2 class="text-xl font-semibold mb-4">Flight Controls</h2>
@@ -40,10 +74,13 @@
                 <button onclick="armDrone()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
                     Arm Drone
                 </button>
-                <div class="flex items-center">
+                <div class="flex items-center" style="padding: 5px; border: 2px dashed grey;">
                     <input id="takeoffAltitude" type="number" placeholder="Altitude (m)" class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mr-2">
                     <button onclick="takeoff()" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
                         Takeoff
+                    </button>
+                    <button onclick="startMission()" class="bg-green-500 hover:bg-green-700 ml-2 text-white font-bold py-2 px-4 rounded">
+                        Start Mission
                     </button>
                 </div>
                 <button onclick="land()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
@@ -87,6 +124,7 @@
             Status: Waiting for commands...
         </div>
     </div>
+    <script src="scripts/rtk-handler.js"></script>
     <script src="scripts/drone-dashboard.js"></script>
 </body>
 </html>

@@ -10,6 +10,8 @@ function onConnect() {
     console.log("Connected to MQTT broker");
     client.subscribe("drone/+/status");
     client.subscribe("drone/+/telemetry");
+    client.subscribe("drone/+/status_messages"); 
+    const rtkHandler = new RTKBaseHandler(client);
 }
 
 function onConnectionLost(responseObject) {
@@ -19,13 +21,67 @@ function onConnectionLost(responseObject) {
 }
 
 function onMessageArrived(message) {
-    const topic = message.destinationName;
-    const payload = JSON.parse(message.payloadString);
+    const topic = message.destinationName; 
+    console.log(topic) 
+    let payload;
+    try {
+        payload = JSON.parse(message.payloadString);
+    } catch (error) {
+        console.error("Error parsing payload:", error);
+        return;
+    }
 
-    if (topic.includes('/status')) {
+    if (topic.includes('/status') && !topic.includes('/status_messages')) {
+        console.log("1)status topic:", payload);
         updateDroneStatus(topic, payload);
     } else if (topic.includes('/telemetry')) {
+        console.log("2)telemetry topic:", payload);
         updateDroneTelemetry(topic, payload);
+    } else if (topic.includes('/status_messages')) {
+        updateStatusMessages(topic, payload);
+    } else {
+        console.log("Unhandled topic:", topic);
+    }
+}
+
+function formatTimestamp(timestamp) {
+    if (typeof timestamp === 'number') {
+        try {
+            // Convert to BigInt to handle large numbers
+            const timestampBigInt = BigInt(Math.floor(timestamp));
+
+            // Split into seconds and microseconds
+            const seconds = Number(timestampBigInt / 1000000n);
+            const microseconds = Number(timestampBigInt % 1000000n);
+
+            // Create a Date object with the seconds
+            const date = new Date(seconds * 1000);
+
+            // Check if the date is valid
+            if (isNaN(date.getTime())) {
+                throw new Error('Invalid date');
+            }
+
+            // Format the date and time
+            const formattedDate = date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+
+            // Add microseconds to the formatted string
+            return `${formattedDate}.${microseconds.toString().padStart(6, '0')}`;
+        } catch (error) {
+            console.error('Error formatting timestamp:', error);
+            return `Error formatting: ${timestamp}`;
+        }
+    } else {
+        // If timestamp is not a number, return it as is (e.g., "sync_failed" or "not_initialized")
+        return timestamp;
     }
 }
 
@@ -44,7 +100,7 @@ function updateDroneStatus(topic, payload) {
     droneCard.classList.add(payload.status === 'connected' ? 'connected' : 'disconnected');
 }
 
-function updateDroneTelemetry(topic, payload) {
+function updateStatusMessages(topic, payload) {
     const droneId = topic.split('/')[1];
     let droneCard = document.getElementById(`drone-${droneId}`);
     
@@ -52,11 +108,42 @@ function updateDroneTelemetry(topic, payload) {
         droneCard = createDroneCard(droneId);
     }
 
+    const statusMessagesElement = droneCard.querySelector('.status-messages');
+    if (!statusMessagesElement) {
+        const messagesContainer = document.createElement('div');
+        messagesContainer.className = 'status-messages mt-4 h-20 overflow-y-auto text-sm';
+        droneCard.appendChild(messagesContainer);
+    }
+
+    const messageElement = document.createElement('div');
+    messageElement.textContent = payload.message;
+    statusMessagesElement.insertBefore(messageElement, statusMessagesElement.firstChild);
+
+    // Keep only the last 100 messages
+    while (statusMessagesElement.childNodes.length > 100) {
+        statusMessagesElement.removeChild(statusMessagesElement.lastChild);
+    }
+}
+
+function updateDroneTelemetry(topic, payload) {
+    const droneId = topic.split('/')[1];
+    let droneCard = document.getElementById(`drone-${droneId}`);
+    
+    
+    if (!droneCard) {
+        droneCard = createDroneCard(droneId);
+    }
+    
+    droneCard.classList.remove('connected', 'disconnected');
+    droneCard.classList.add('connected');
+
     const telemetryElement = droneCard.querySelector('.telemetry');
+    const formattedTimestamp = formatTimestamp(payload.timestamp);
     telemetryElement.innerHTML = `
         <p>Altitude: ${payload.altitude.toFixed(2)} m</p>
         <p>Battery: ${payload.battery.toFixed(2)} V</p>
         <p>Mode: ${payload.mode}</p>
+        <p>Onboard Time: ${formattedTimestamp}</p>
     `;
 }
 
@@ -72,6 +159,7 @@ function createDroneCard(droneId) {
         <button onclick="landDrone('${droneId}')" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
             Land Drone ${droneId}
         </button>
+        <div class="status-messages mt-4 h-20 overflow-y-auto text-sm"></div>
     `;
     droneCards.appendChild(card);
     return card;
@@ -136,6 +224,18 @@ function uploadMissions() {
         }
     };
     reader.readAsText(file);
+}
+
+function startMission() {
+    const takeoffAltitude = document.getElementById('takeoffAltitude').value;
+    if (!takeoffAltitude) {
+        alert("Please enter a takeoff altitude.");
+        return;
+    }
+    sendMQTTMessage(`drone/command`, {
+        command: "start_mission",
+        takeoffAltitude: parseFloat(takeoffAltitude)
+    });
 }
 
 function getDroneRange(first, last) {
