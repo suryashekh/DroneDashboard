@@ -6,6 +6,9 @@ client.onMessageArrived = onMessageArrived;
 
 client.connect({onSuccess:onConnect});
 
+let baseStationCoordinates = null;
+
+
 function onConnect() {
     console.log("Connected to MQTT broker");
     client.subscribe("drone/+/status");
@@ -13,6 +16,94 @@ function onConnect() {
     client.subscribe("drone/+/status_messages"); 
     const rtkHandler = new RTKBaseHandler(client);
 }
+
+function promptBaseStationCoordinates() {
+    return new Promise((resolve, reject) => {
+        const latLongHTML = `
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Latitude:</label>
+                <input type="number" id="baseLat" step="any" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Longitude:</label>
+                <input type="number" id="baseLong" step="any" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+        `;
+
+        const dialog = document.createElement('dialog');
+        dialog.className = 'p-6 rounded-lg shadow-xl';
+        dialog.innerHTML = `
+            <form method="dialog" class="space-y-4">
+                <h2 class="text-xl font-bold mb-4">Enter Base Station Coordinates</h2>
+                ${latLongHTML}
+                <div class="flex justify-end space-x-2">
+                    <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        Confirm
+                    </button>
+                </div>
+            </form>
+        `;
+
+        document.body.appendChild(dialog);
+        dialog.showModal();
+
+        dialog.querySelector('form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const lat = parseFloat(document.getElementById('baseLat').value);
+            const long = parseFloat(document.getElementById('baseLong').value);
+
+            if (isNaN(lat) || isNaN(long)) {
+                alert('Please enter valid coordinates');
+                return;
+            }
+
+            baseStationCoordinates = { lat, long };
+            console.log('Base station coordinates set:', baseStationCoordinates);
+            dialog.close();
+            document.body.removeChild(dialog);
+            resolve();
+        });
+
+        dialog.addEventListener('cancel', () => {
+            document.body.removeChild(dialog);
+            reject(new Error('Base station coordinate entry cancelled'));
+        });
+    });
+}
+
+// Coordinate conversion functions
+function metersToLatLong(x, y, baseCoords) {
+    const EARTH_RADIUS = 6378137.0; // Earth's radius in meters
+    
+    // Convert meters to degrees
+    const latChange = (y / EARTH_RADIUS) * (180 / Math.PI);
+    const longChange = (x / (EARTH_RADIUS * Math.cos(baseCoords.lat * Math.PI / 180))) * (180 / Math.PI);
+    
+    return {
+        lat: baseCoords.lat + latChange,
+        long: baseCoords.long + longChange
+    };
+}
+
+function convertWaypoints(waypoints, baseCoords) {
+    return waypoints.map(waypoint => {
+        // Debug log each waypoint before conversion
+        console.log('Converting waypoint:', waypoint);
+        
+        const converted = metersToLatLong(waypoint.x, waypoint.y, baseCoords);
+        
+        // Debug log conversion result
+        console.log('Conversion result:', converted);
+        
+        return {
+            time: waypoint.time,
+            lat: converted.lat,
+            lon: converted.long,
+            alt: waypoint.z
+        };
+    });
+}
+
 
 function onConnectionLost(responseObject) {
     if (responseObject.errorCode !== 0) {
@@ -32,10 +123,10 @@ function onMessageArrived(message) {
     }
 
     if (topic.includes('/status') && !topic.includes('/status_messages')) {
-        console.log("1)status topic:", payload);
+        // console.log("1)status topic:", payload);
         updateDroneStatus(topic, payload);
     } else if (topic.includes('/telemetry')) {
-        console.log("2)telemetry topic:", payload);
+        // console.log("2)telemetry topic:", payload);
         updateDroneTelemetry(topic, payload);
     } else if (topic.includes('/status_messages')) {
         updateStatusMessages(topic, payload);
@@ -194,7 +285,7 @@ function landDrone(droneId) {
     sendMQTTMessage(`drone/${droneId}/command`, {command: "change_mode", mode: "land"});
 }
 
-function uploadMissions() {
+async function uploadMissions() {
     const file = document.getElementById("jsonFile").files[0];
     const firstDroneId = document.getElementById("firstDroneId").value;
     const lastDroneId = document.getElementById("lastDroneId").value;
@@ -205,26 +296,90 @@ function uploadMissions() {
     }
 
     const drones = getDroneRange(firstDroneId, lastDroneId);
-
     const reader = new FileReader();
-    reader.onload = function(e) {
+
+    reader.onload = async function(e) {
         try {
-            const missionData = JSON.parse(e.target.result);
-            drones.forEach(droneId => {
-                const topic = `drone/${droneId}/mission`;
-                console.log(`Uploading mission to topic: ${topic}`);
-                console.log('Mission data:', JSON.stringify(missionData, null, 2));
-                sendMQTTMessage(topic, missionData);
-                console.log(`Mission uploaded for ${droneId}`);
+            const waypointsArray = JSON.parse(e.target.result);
+            console.log('Number of waypoints:', waypointsArray.length);
+
+            if (!Array.isArray(waypointsArray)) {
+                throw new Error('Invalid format: Expected an array of waypoints');
+            }
+
+            // Clean and validate waypoints
+            const cleanedWaypoints = waypointsArray.map((waypoint, index) => {
+                const cleanWaypoint = {};
+                Object.entries(waypoint).forEach(([key, value]) => {
+                    const cleanKey = key.trim().toLowerCase();
+                    if (cleanKey === 'time' || cleanKey === 'time ') {
+                        cleanWaypoint.time = value;
+                    } else if (cleanKey === 'x') {
+                        cleanWaypoint.x = parseFloat(value);
+                    } else if (cleanKey === 'y') {
+                        cleanWaypoint.y = parseFloat(value);
+                    } else if (cleanKey === 'z') {
+                        cleanWaypoint.z = parseFloat(value);
+                    }
+                });
+
+                if (!Object.keys(cleanWaypoint).length) {
+                    throw new Error(`Invalid waypoint at index ${index}`);
+                }
+
+                return cleanWaypoint;
             });
-            document.getElementById("status").innerHTML = `Missions uploaded for ${drones.join(", ")}`;
+
+            // Get base station coordinates
+            await promptBaseStationCoordinates();
+            
+            // Convert coordinates
+            const convertedWaypoints = await convertWaypoints(cleanedWaypoints, baseStationCoordinates);
+            
+            // Prepare mission data
+            const missionData = JSON.stringify(convertedWaypoints);
+            const CHUNK_SIZE = 512; // Reduced chunk size
+            const totalSize = missionData.length;
+            const chunks = Math.ceil(totalSize / CHUNK_SIZE);
+
+            console.log(`Splitting mission into ${chunks} chunks of ${CHUNK_SIZE} bytes`);
+
+            // Send chunks with delays
+            for (let i = 0; i < chunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, totalSize);
+                const chunk = missionData.slice(start, end);
+
+                const chunkObj = {
+                    chunk: i,
+                    totalChunks: chunks,
+                    totalSize: totalSize,
+                    data: chunk
+                };
+
+                // Send to each drone
+                for (const droneId of drones) {
+                    const topic = `drone/${droneId}/mission`;
+                    console.log(`Uploading chunk ${i + 1}/${chunks} to Drone ${droneId}`);
+                    sendMQTTMessage(topic, chunkObj);
+                    
+                    // Add longer delay between chunks
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+
+            document.getElementById("status").innerHTML = 
+                `Mission upload complete for ${drones.join(", ")}`;
+
         } catch (error) {
-            console.error("Error parsing JSON:", error);
-            document.getElementById("status").innerHTML = "Error parsing mission file. Check console for details.";
+            console.error("Error processing mission:", error);
+            document.getElementById("status").innerHTML = `Error: ${error.message}`;
         }
     };
+
     reader.readAsText(file);
 }
+
 
 function startMission() {
     const takeoffAltitude = document.getElementById('takeoffAltitude').value;
