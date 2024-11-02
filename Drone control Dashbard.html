@@ -79,6 +79,7 @@
                     <button onclick="takeoff()" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
                         Takeoff
                     </button>
+                    <input type="time" step="1" class="ml-2 border rounded px-2 py-1" id="startTime">
                     <button onclick="startMission()" class="bg-green-500 hover:bg-green-700 ml-2 text-white font-bold py-2 px-4 rounded">
                         Start Mission
                     </button>
@@ -101,7 +102,7 @@
                 <label class="block text-gray-700 text-sm font-bold mb-2" for="jsonFile">
                     Select Mission File:
                 </label>
-                <input type="file" id="jsonFile" accept=".json" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                <input type="file" id="jsonFile" multiple accept=".json" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
             </div>
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2" for="firstDroneId">

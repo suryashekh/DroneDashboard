@@ -1,5 +1,5 @@
 // MQTT client setup
-var client = new Paho.MQTT.Client("192.168.0.18", 9001, "DroneControlDashboard");
+var client = new Paho.MQTT.Client("127.0.0.1", 9001, "DroneControlDashboard");
 
 client.onConnectionLost = onConnectionLost;
 client.onMessageArrived = onMessageArrived;
@@ -154,7 +154,7 @@ function formatTimestamp(timestamp) {
             }
 
             // Format the date and time
-            const formattedDate = date.toLocaleString('en-US', {
+            const formattedDate = date.toLocaleString('en-IN', {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
@@ -186,6 +186,17 @@ function updateDroneStatus(topic, payload) {
 
     const statusElement = droneCard.querySelector('.status');
     statusElement.textContent = `Status: ${payload.status}`;
+
+    // Get the title element
+    const titleElement = droneCard.querySelector('h3');
+
+    // Check for mission upload status
+    if (payload.status === "waypoint mission uploaded successfully") {
+        if (!titleElement.textContent.includes("(mission uploaded)")) {
+            titleElement.innerHTML = `Drone ${droneId} <span><i>(mission uploaded)</i></span>`;
+        }
+    }
+    
     
     droneCard.classList.remove('connected', 'disconnected');
     droneCard.classList.add(payload.status === 'connected' ? 'connected' : 'disconnected');
@@ -233,6 +244,7 @@ function updateDroneTelemetry(topic, payload) {
     telemetryElement.innerHTML = `
         <p>Altitude: ${payload.altitude.toFixed(2)} m</p>
         <p>Battery: ${payload.battery.toFixed(2)} V</p>
+        <p>GPS: ${payload.gps_fix}</p>
         <p>Mode: ${payload.mode}</p>
         <p>Onboard Time: ${formattedTimestamp}</p>
     `;
@@ -286,29 +298,51 @@ function landDrone(droneId) {
 }
 
 async function uploadMissions() {
-    const file = document.getElementById("jsonFile").files[0];
-    const firstDroneId = document.getElementById("firstDroneId").value;
-    const lastDroneId = document.getElementById("lastDroneId").value;
+    const fileInput = document.getElementById("jsonFile");
+    const firstDroneId = parseInt(document.getElementById("firstDroneId").value);
+    const lastDroneId = parseInt(document.getElementById("lastDroneId").value);
 
-    if (!file) {
-        alert("Please select a mission file first.");
+    if (!fileInput.files.length) {
+        alert("Please select mission files first.");
         return;
     }
 
-    const drones = getDroneRange(firstDroneId, lastDroneId);
-    const reader = new FileReader();
+    // Convert FileList to Array and create a map of drone IDs to their files
+    const fileMap = new Map();
+    Array.from(fileInput.files).forEach(file => {
+        const droneId = parseInt(file.name.split('.')[0]);
+        if (!isNaN(droneId)) {
+            fileMap.set(droneId, file);
+        }
+    });
 
-    reader.onload = async function(e) {
-        try {
-            const waypointsArray = JSON.parse(e.target.result);
-            console.log('Number of waypoints:', waypointsArray.length);
+    // Validate that we have files for all drones in range
+    for (let droneId = firstDroneId; droneId <= lastDroneId; droneId++) {
+        if (!fileMap.has(droneId)) {
+            alert(`Missing mission file for drone ${droneId}`);
+            return;
+        }
+    }
 
-            if (!Array.isArray(waypointsArray)) {
-                throw new Error('Invalid format: Expected an array of waypoints');
+    try {
+        // Get base station coordinates once for all conversions
+        await promptBaseStationCoordinates();
+
+        // Process each drone's mission file
+        for (let droneId = firstDroneId; droneId <= lastDroneId; droneId++) {
+            const file = fileMap.get(droneId);
+            console.log(`Processing mission for Drone ${droneId}: ${file.name}`);
+            
+            // Read and process file
+            const missionData = await readFileAsync(file);
+            const parsedMission = JSON.parse(missionData);
+            
+            if (!parsedMission.waypoints || !Array.isArray(parsedMission.waypoints)) {
+                throw new Error(`Invalid format in ${file.name}: Expected waypoints array`);
             }
 
             // Clean and validate waypoints
-            const cleanedWaypoints = waypointsArray.map((waypoint, index) => {
+            const cleanedWaypoints = parsedMission.waypoints.map((waypoint, index) => {
                 const cleanWaypoint = {};
                 Object.entries(waypoint).forEach(([key, value]) => {
                     const cleanKey = key.trim().toLowerCase();
@@ -324,31 +358,34 @@ async function uploadMissions() {
                 });
 
                 if (!Object.keys(cleanWaypoint).length) {
-                    throw new Error(`Invalid waypoint at index ${index}`);
+                    throw new Error(`Invalid waypoint at index ${index} in ${file.name}`);
                 }
 
                 return cleanWaypoint;
             });
 
-            // Get base station coordinates
-            await promptBaseStationCoordinates();
-            
             // Convert coordinates
-            const convertedWaypoints = await convertWaypoints(cleanedWaypoints, baseStationCoordinates);
+            const convertedWaypoints = convertWaypoints(cleanedWaypoints, baseStationCoordinates);
             
-            // Prepare mission data
-            const missionData = JSON.stringify(convertedWaypoints);
-            const CHUNK_SIZE = 512; // Reduced chunk size
-            const totalSize = missionData.length;
+            // Prepare mission payload for this drone
+            const finalMissionPayload = {
+                drone_id: droneId.toString(),
+                waypoints: convertedWaypoints,
+                light_sequence: parsedMission.light_sequence
+            };
+
+            // Split and send mission in chunks
+            const missionJson = JSON.stringify(finalMissionPayload);
+            const CHUNK_SIZE = 512;
+            const totalSize = missionJson.length;
             const chunks = Math.ceil(totalSize / CHUNK_SIZE);
 
-            console.log(`Splitting mission into ${chunks} chunks of ${CHUNK_SIZE} bytes`);
+            console.log(`Splitting mission for Drone ${droneId} into ${chunks} chunks`);
 
-            // Send chunks with delays
             for (let i = 0; i < chunks; i++) {
                 const start = i * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, totalSize);
-                const chunk = missionData.slice(start, end);
+                const chunk = missionJson.slice(start, end);
 
                 const chunkObj = {
                     chunk: i,
@@ -357,39 +394,67 @@ async function uploadMissions() {
                     data: chunk
                 };
 
-                // Send to each drone
-                for (const droneId of drones) {
-                    const topic = `drone/${droneId}/mission`;
-                    console.log(`Uploading chunk ${i + 1}/${chunks} to Drone ${droneId}`);
-                    sendMQTTMessage(topic, chunkObj);
-                    
-                    // Add longer delay between chunks
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
+                const topic = `drone/${droneId}/mission`;
+                console.log(`Uploading chunk ${i + 1}/${chunks} to ${topic}`);
+                sendMQTTMessage(topic, chunkObj);
+                
+                // Add delay between chunks
+                await new Promise(resolve => setTimeout(resolve, 200));
             }
 
-            document.getElementById("status").innerHTML = 
-                `Mission upload complete for ${drones.join(", ")}`;
-
-        } catch (error) {
-            console.error("Error processing mission:", error);
-            document.getElementById("status").innerHTML = `Error: ${error.message}`;
+            // Add delay between drones
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
-    };
 
-    reader.readAsText(file);
+        document.getElementById("status").innerHTML = 
+            `Mission upload complete for drones ${firstDroneId} through ${lastDroneId}`;
+
+    } catch (error) {
+        console.error("Error processing missions:", error);
+        document.getElementById("status").innerHTML = `Error: ${error.message}`;
+    }
+}
+
+// Helper function to read file contents
+function readFileAsync(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(file);
+    });
 }
 
 
 function startMission() {
     const takeoffAltitude = document.getElementById('takeoffAltitude').value;
-    if (!takeoffAltitude) {
-        alert("Please enter a takeoff altitude.");
+    const startTimeInput = document.getElementById('startTime').value;
+    if (!takeoffAltitude || !startTimeInput) {
+        alert("Please enter a takeoff altitude to start the mission.");
         return;
     }
+
+    // Convert local time input to UTC
+    const now = new Date();
+    const [hours, minutes, seconds] = startTimeInput.split(':').map(Number);
+    
+    // Create date object with today's date and input time
+    const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, seconds);
+    
+    // Convert to UTC seconds since midnight
+    const utcHours = targetDate.getUTCHours();
+    const utcMinutes = targetDate.getUTCMinutes();
+    const utcSeconds = targetDate.getUTCSeconds();
+    const startTimeSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
+    
+    console.log(`Local time: ${hours}:${minutes}:${seconds}`);
+    console.log(`UTC time: ${utcHours}:${utcMinutes}:${utcSeconds}`);
+    console.log(`Seconds since midnight UTC: ${startTimeSeconds}`);
+
     sendMQTTMessage(`drone/command`, {
         command: "start_mission",
-        takeoffAltitude: parseFloat(takeoffAltitude)
+        takeoffAltitude: parseFloat(takeoffAltitude),
+        startTimeSeconds: startTimeSeconds
     });
 }
 
