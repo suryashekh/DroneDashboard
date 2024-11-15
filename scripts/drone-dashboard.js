@@ -21,13 +21,19 @@ function promptBaseStationCoordinates() {
     return new Promise((resolve, reject) => {
         const latLongHTML = `
             <div class="mb-4">
-                <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Latitude:</label>
-                <input type="number" id="baseLat" step="any" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
-            </div>
-            <div class="mb-4">
-                <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Longitude:</label>
-                <input type="number" id="baseLong" step="any" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
-            </div>
+    <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Latitude (°N):</label>
+    <input type="number" id="baseLat" step="any" min="6.5546" max="35.6745" 
+           placeholder="Between 6.5546° and 35.6745°"
+           class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+           required>
+</div>
+<div class="mb-4">
+    <label class="block text-gray-700 text-sm font-bold mb-2">Base Station Longitude (°E):</label>
+    <input type="number" id="baseLong" step="any" min="68.1113" max="97.395"
+           placeholder="Between 68.1113° and 97.395°"
+           class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+           required>
+</div>
         `;
 
         const dialog = document.createElement('dialog');
@@ -231,7 +237,6 @@ function updateDroneTelemetry(topic, payload) {
     const droneId = topic.split('/')[1];
     let droneCard = document.getElementById(`drone-${droneId}`);
     
-    
     if (!droneCard) {
         droneCard = createDroneCard(droneId);
     }
@@ -241,12 +246,33 @@ function updateDroneTelemetry(topic, payload) {
 
     const telemetryElement = droneCard.querySelector('.telemetry');
     const formattedTimestamp = formatTimestamp(payload.timestamp);
+    
+    // Format accuracy values with proper units
+    const formatAccuracy = (value) => {
+        return typeof value === 'number' ? `${value.toFixed(2)}m` : 'N/A';
+    };
+
     telemetryElement.innerHTML = `
-        <p>Altitude: ${payload.altitude.toFixed(2)} m</p>
-        <p>Battery: ${payload.battery.toFixed(2)} V</p>
-        <p>GPS: ${payload.gps_fix}</p>
-        <p>Mode: ${payload.mode}</p>
-        <p>Onboard Time: ${formattedTimestamp}</p>
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Left Column - Original Status -->
+            <div>
+                <h4 class="font-semibold mb-2">Status Info</h4>
+                <p>Altitude: ${payload.altitude.toFixed(2)} m</p>
+                <p>Battery: ${payload.battery.toFixed(2)} V</p>
+                <p>GPS: ${payload.gps_fix} (Sats: ${payload.satellites_visible || 'N/A'})</p>
+                <p>Mode: ${payload.mode}</p>
+                <p>Time: ${formattedTimestamp}</p>
+            </div>
+            
+            <!-- Right Column - Position Data -->
+            <div>
+                <h4 class="font-semibold mb-2">Position Accuracy</h4>
+                <p>Estimated: ${formatAccuracy(payload.accuracy?.estimated)}</p>
+                <p>Horizontal: ${formatAccuracy(payload.accuracy?.horizontal)}</p>
+                <p>Vertical: ${formatAccuracy(payload.accuracy?.vertical)}</p>
+                <p>RTCM Age: ${payload.accuracy?.rtcm_age?.toFixed(1) || 'N/A'}s</p>
+            </div>
+        </div>
     `;
 }
 
@@ -376,6 +402,7 @@ async function uploadMissions() {
 
             // Split and send mission in chunks
             const missionJson = JSON.stringify(finalMissionPayload);
+            console.log(missionJson);
             const CHUNK_SIZE = 512;
             const totalSize = missionJson.length;
             const chunks = Math.ceil(totalSize / CHUNK_SIZE);
@@ -476,4 +503,23 @@ function getDroneRange(first, last) {
         drones.push(`${prefix}${i}`);
     }
     return drones;
+}
+
+function cancelMission() {
+    // Send cancel command to all drones
+    sendMQTTMessage("drone/command", {
+        command: "cancel_mission"
+    });
+}
+// Function to initialize time sync for all drones
+function initializeDroneTime() {
+    const timestamp = BigInt(new Date().getTime()) * 1000n; // Convert to microseconds
+    const payload = {
+        command: "time_sync",
+        timestamp: timestamp.toString()
+    };
+    
+    // Send to all drones
+    sendMQTTMessage("drone/command", payload);
+    console.log("Time sync initialization sent to all drones");
 }

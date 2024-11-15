@@ -62,8 +62,14 @@
         <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
             <h2 class="text-xl font-semibold mb-4">Flight Controls</h2>
             <div class="flex flex-wrap gap-4">
+                <button onclick="initializeDroneTime()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Sync Time
+                </button>
                 <button onclick="changeMode('stabilize')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                     Stabilize Mode
+                </button>
+                <button onclick="land()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                    Land Mode
                 </button>
                 <button onclick="changeMode('auto')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                     Auto Mode
@@ -83,10 +89,10 @@
                     <button onclick="startMission()" class="bg-green-500 hover:bg-green-700 ml-2 text-white font-bold py-2 px-4 rounded">
                         Start Mission
                     </button>
+                    <button onclick="cancelMission()" class="bg-red-500 hover:bg-red-700 ml-2 text-white font-bold py-2 px-4 rounded">
+                        Cancel Mission
+                    </button>
                 </div>
-                <button onclick="land()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
-                    Land
-                </button>
             </div>
         </div>
         

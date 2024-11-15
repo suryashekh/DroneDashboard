@@ -75,11 +75,12 @@ class RTKBaseHandler {
 
             this.port = ports[selectedIndex];
             await this.port.open({
-                baudRate: 57600,
+                baudRate: 460800,
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none",
-                flowControl: "none"
+                flowControl: "none",
+                bufferSize: 65536  // Increase buffer size
             });
 
             this.reader = this.port.readable.getReader();
