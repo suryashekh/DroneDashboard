@@ -251,7 +251,7 @@ function updateDroneTelemetry(topic, payload) {
     const formatAccuracy = (value) => {
         return typeof value === 'number' ? `${value.toFixed(2)}m` : 'N/A';
     };
-
+    console.log(payload);
     telemetryElement.innerHTML = `
         <div class="grid grid-cols-2 gap-4">
             <!-- Left Column - Original Status -->
@@ -267,7 +267,9 @@ function updateDroneTelemetry(topic, payload) {
             <!-- Right Column - Position Data -->
             <div>
                 <h4 class="font-semibold mb-2">Position Accuracy</h4>
-                <p>Estimated: ${formatAccuracy(payload.accuracy?.estimated)}</p>
+            <!-- <p>Estimated: ${formatAccuracy(payload.accuracy?.estimated)}</p> -->
+                <p>Latitude: ${payload.latitude}</p>
+                <p>Longitude: ${payload.longitude}</p>
                 <p>Horizontal: ${formatAccuracy(payload.accuracy?.horizontal)}</p>
                 <p>Vertical: ${formatAccuracy(payload.accuracy?.vertical)}</p>
                 <p>RTCM Age: ${payload.accuracy?.rtcm_age?.toFixed(1) || 'N/A'}s</p>
@@ -413,7 +415,8 @@ async function uploadMissions() {
                 const start = i * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, totalSize);
                 const chunk = missionJson.slice(start, end);
-
+                const isLightSequenceOnly = document.getElementById('lightSequenceOnly').checked;
+                console.log(isLightSequenceOnly);
                 const chunkObj = {
                     chunk: i,
                     totalChunks: chunks,
@@ -423,7 +426,7 @@ async function uploadMissions() {
 
                 const topic = `drone/${droneId}/mission`;
                 console.log(`Uploading chunk ${i + 1}/${chunks} to ${topic}`);
-                sendMQTTMessage(topic, chunkObj);
+                sendMQTTMessage(topic, {chunk : chunkObj, light_sequence_only : isLightSequenceOnly});
                 
                 // Add delay between chunks
                 await new Promise(resolve => setTimeout(resolve, 200));
@@ -523,3 +526,19 @@ function initializeDroneTime() {
     sendMQTTMessage("drone/command", payload);
     console.log("Time sync initialization sent to all drones");
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const lightSequenceToggle = document.getElementById('lightSequenceOnly');
+    const uploadButton = document.getElementById('uploadButton');
+
+    if (lightSequenceToggle && uploadButton) {  // Check if both elements exist
+        lightSequenceToggle.addEventListener('change', function() {
+            uploadButton.textContent = this.checked ? 'Upload Light Sequence' : 'Upload Missions';
+        });
+    } else {
+        console.error('Could not find required elements:', {
+            toggle: !!lightSequenceToggle,
+            button: !!uploadButton
+        });
+    }
+});
